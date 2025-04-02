@@ -22,14 +22,14 @@ int main()
 	unsigned char note_count = 4;                 // Number of active notes
 	unsigned char val = 0;                        // Output value (high/low)
 	unsigned char note_on = 1;                    // Note playing state
-	unsigned long beat = 2000;                    // Base beat duration
-	unsigned char multiplier = 3;                 // Note frequency multiplier
+	unsigned long beat = 8000;                    // Base beat duration
+	unsigned char multiplier = 4;                 // Note frequency multiplier
 	unsigned char beats[32];                      // Array for beat durations
 	unsigned long original = 2000;                // Base frequency
 	
 	for (note = 0; note < 32; note++)
 	{
-		notes[note] = ((Random() % 5) + 1) * 3; 
+		notes[note] = ((Random() % 6) + 1) * 5; 
 		beats[note] = (Random() % 2) + 1;
 	}
 	// fill up the table with repeated notes and beat durations
@@ -50,12 +50,12 @@ if (sample == 0)
 
 		{
 			sample = period;
-			if (note_on)
-				val = !val;
+			if (note_on) 
+				val = !val; ///invert the condition of val which will later fire the pin
 		}
 		if (!--duration)
 		{
-			note_on = 0;
+			note_on = 0; //decrement the counter until duration == zero then flip note state
 		}
 		
 		if (count == 0)
@@ -73,7 +73,7 @@ if (sample == 0)
 													// plug in the beat spacing 
 												//with the table of beat patterns
 			duration = count;// / 2;
-			note_on = 1;
+			note_on = 1; //don't forget to turn this back on.
 	
 /*
 Think of it like a music box where:
@@ -98,9 +98,9 @@ count is counting down until we should move to the next hole
 		}
 		
 		if (val)
-			PORTB |= (1 << 3) | (1 << 4);
+			PORTB |= (1 << 3) | (1 << 4); //this is actually how you toggle the pins 3 and 4
 		else
-			PORTB &= ~((1 << 3) | (1 << 4));
+			PORTB &= ~((1 << 3) | (1 << 4)); //if val then turn the pins on, else, turn them off.
 	}
 	
 	return 0;
