@@ -4,8 +4,8 @@
 // ===== CONFIGURATION PARAMETERS =====
 
 // Basic configuration
-~totalDuration = 8;     // Total duration in minutes
-~numParts = 4;          // Number of parts
+~totalDuration = 5;     // Total duration in minutes
+~numParts = 6;          // Number of parts
 ~entriesPerPart = 10;   // Target entries per part (may generate fewer if time runs out)
 
 // Musical parameters (0.0-1.0)
@@ -623,6 +623,9 @@ if(File.exists(~saveDir).not) {
     });
 
 
+
+
+
 // Add this code to the existing time bracket generator,
 // just before the "Show the window" line (~window.front;)
 
@@ -631,8 +634,8 @@ if(File.exists(~saveDir).not) {
     // If we're executing from a file, create folder next to it
     PathName(thisProcess.nowExecutingPath).pathOnly +/+ "time_bracket_scores";
 } {
-    // Fallback if we're executing from IDE
-    thisProcess.platform.userAppSupportDir +/+ "time_bracket_scores";
+    // Fallback if we're executing from IDE without a saved file
+    Document.current.dir +/+ "time_bracket_scores";
 };
 
 if(File.exists(~saveDir).not) {
@@ -641,24 +644,23 @@ if(File.exists(~saveDir).not) {
         "Created directory: %".format(~saveDir).postln;
     } {
         |error|
-        "Failed to create directory. Will use default directory instead.".postln;
-        "Error was: %".format(error.errorString).postln;
+        "Failed to create directory: %".format(error.errorString).postln;
         // Fall back to user documents directory
         ~saveDir = Platform.userHomeDir +/+ "Documents" +/+ "time_bracket_scores";
         if(File.exists(~saveDir).not) {
             File.mkdir(~saveDir);
         };
-        "Using directory: %".format(~saveDir).postln;
+        "Using fallback directory: %".format(~saveDir).postln;
     };
 };
 
 // Generate a timestamp for filenames
 ~timestamp = Date.getDate.stamp;
 
-// Function to save all parts to separate files
+// Function to save all parts to separate files in Markdown format
 ~savePartsToFiles = {
     var masterScoreFile, partFile;
-    var masterFilename = "score_all_parts_" ++ ~timestamp ++ ".txt";
+    var masterFilename = "score_all_parts_" ++ ~timestamp ++ ".md"; // Changed to .md
     var masterPath = ~saveDir +/+ masterFilename;
 
     // Try/catch block to handle potential file access errors
@@ -666,69 +668,70 @@ if(File.exists(~saveDir).not) {
         // Save master score with all parts
         masterScoreFile = File(masterPath, "w");
 
-        masterScoreFile.write("TIME BRACKET SCORE\n");
-        masterScoreFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
+        // Markdown formatting for headers and content
+        masterScoreFile.write("# TIME BRACKET SCORE\n");
+        masterScoreFile.write("*Generated: " ++ Date.getDate.asString ++ "*\n\n");
 
-        masterScoreFile.write("SCORE PARAMETERS\n");
-        masterScoreFile.write("Duration: % minutes, % parts\n".format(~totalDuration, ~numParts));
-        masterScoreFile.write("Density: %, X Probability: %, Bunchiness: %, Staggering: %\n".format(
+        masterScoreFile.write("## SCORE PARAMETERS\n");
+        masterScoreFile.write("- **Duration:** % minutes, % parts\n".format(~totalDuration, ~numParts));
+        masterScoreFile.write("- **Density:** %, **X Probability:** %, **Bunchiness:** %, **Staggering:** %\n".format(
             ~density, ~xProbability, ~bunchiness, ~staggering
         ));
-        masterScoreFile.write("Distribution Balance: %, Full Range Coverage: %\n\n".format(
+        masterScoreFile.write("- **Distribution Balance:** %, **Full Range Coverage:** %\n\n".format(
             ~distributionBalance, ~fullRangeSpread
         ));
 
-        masterScoreFile.write("PERFORMANCE INSTRUCTIONS\n");
-        masterScoreFile.write("Perform long tones on your instrument, following the time brackets.\n");
-        masterScoreFile.write("Start a tone at the first time and sustain until the second time.\n");
-        masterScoreFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
-        masterScoreFile.write("Use a stopwatch to keep track of time.\n\n");
+        masterScoreFile.write("## PERFORMANCE INSTRUCTIONS\n");
+        masterScoreFile.write("- Perform long tones on your instrument, following the time brackets.\n");
+        masterScoreFile.write("- Start a tone at the first time and sustain until the second time.\n");
+        masterScoreFile.write("- When 'X' is given as an end time, determine the ending yourself.\n");
+        masterScoreFile.write("- Use a stopwatch to keep track of time.\n\n");
 
         // Write all parts to the master file
         ~parts.do {|part, i|
-            masterScoreFile.write("\nPART %\n\n".format(i+1));
+            masterScoreFile.write("## PART %\n\n".format(i+1));
 
             part.do {|entry|
                 var start = ~formatTime.(entry[0]);
                 var end = ~formatTime.(entry[1]);
 
-                masterScoreFile.write("> % --- %\n\n".format(start, end));
+                masterScoreFile.write("`%` --- `%`\n\n".format(start, end));
             };
         };
 
-        masterScoreFile.write("\nEND OF SCORE\n");
+        masterScoreFile.write("**END OF SCORE**\n");
         masterScoreFile.close;
 
         "Master score saved to: %".format(masterPath).postln;
 
         // Save individual part files
         ~parts.do {|part, i|
-            var partFilename = "score_part_" ++ (i+1) ++ "_" ++ ~timestamp ++ ".txt";
+            var partFilename = "score_part_" ++ (i+1) ++ "_" ++ ~timestamp ++ ".md"; // Changed to .md
             var partPath = ~saveDir +/+ partFilename;
 
             partFile = File(partPath, "w");
 
-            partFile.write("TIME BRACKET SCORE - PART %\n".format(i+1));
-            partFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
+            partFile.write("# TIME BRACKET SCORE - PART %\n".format(i+1));
+            partFile.write("*Generated: " ++ Date.getDate.asString ++ "*\n\n");
 
-            partFile.write("PERFORMANCE INSTRUCTIONS\n");
-            partFile.write("Perform long tones on your instrument, following the time brackets.\n");
-            partFile.write("Start a tone at the first time and sustain until the second time.\n");
-            partFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
-            partFile.write("Use a stopwatch to keep track of time.\n\n");
+            partFile.write("## PERFORMANCE INSTRUCTIONS\n");
+            partFile.write("- Perform long tones on your instrument, following the time brackets.\n");
+            partFile.write("- Start a tone at the first time and sustain until the second time.\n");
+            partFile.write("- When 'X' is given as an end time, determine the ending yourself.\n");
+            partFile.write("- Use a stopwatch to keep track of time.\n\n");
 
-            partFile.write("Total Duration: % minutes\n\n".format(~totalDuration));
+            partFile.write("**Total Duration:** % minutes\n\n".format(~totalDuration));
 
-            partFile.write("PART % TIME BRACKETS\n\n".format(i+1));
+            partFile.write("## PART % TIME BRACKETS\n\n".format(i+1));
 
             part.do {|entry|
                 var start = ~formatTime.(entry[0]);
                 var end = ~formatTime.(entry[1]);
 
-                partFile.write("> % --- %\n\n".format(start, end));
+                partFile.write("`%` --- `%`\n\n".format(start, end));
             };
 
-            partFile.write("\nEND OF SCORE\n");
+            partFile.write("**END OF SCORE**\n");
             partFile.close;
 
             "Part % saved to: %".format(i+1, partPath).postln;
@@ -778,9 +781,6 @@ if(File.exists(~saveDir).not) {
         ~currentTime = slider.value * (~totalDuration * 60);
         ~userView.refresh;
     });
-
-
-
 
 // Show the window
 ~window.front;
