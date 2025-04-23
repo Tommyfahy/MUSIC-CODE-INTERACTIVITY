@@ -1,3 +1,4 @@
+(
 // ===== CONFIGURATION PARAMETERS =====
 
 // Basic configuration
@@ -222,3 +223,4 @@ Freedom-oriented:
 };
 
 "=== END OF SCORE ===\n".postln;
+)

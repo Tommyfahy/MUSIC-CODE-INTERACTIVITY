@@ -472,6 +472,316 @@ Freedom-oriented:
         ~userView.refresh;
     });
 
+
+// Add this code to the existing time bracket generator,
+// just before the "Show the window" line (~window.front;)
+
+// Create a save directory in the user's SuperCollider documents directory
+~saveDir = Platform.userAppSupportDir +/+ "time_bracket_scores";
+if(File.exists(~saveDir).not) {
+    try {
+        File.mkdir(~saveDir);
+        "Created directory: %".format(~saveDir).postln;
+    } {
+        |error|
+        "Failed to create directory. Will use temporary directory instead.".postln;
+        "Error was: %".format(error.errorString).postln;
+        // Fall back to system temp directory
+        ~saveDir = PathName.tmp +/+ "time_bracket_scores";
+        if(File.exists(~saveDir).not) {
+            File.mkdir(~saveDir);
+        };
+        "Using temporary directory: %".format(~saveDir).postln;
+    };
+};
+
+// Generate a timestamp for filenames
+~timestamp = Date.getDate.stamp;
+
+// Function to save all parts to separate files
+~savePartsToFiles = {
+    var masterScoreFile, partFile;
+    var masterFilename = "score_all_parts_" ++ ~timestamp ++ ".txt";
+    var masterPath = ~saveDir +/+ masterFilename;
+
+    // Try/catch block to handle potential file access errors
+    try {
+        // Save master score with all parts
+        masterScoreFile = File(masterPath, "w");
+
+        masterScoreFile.write("TIME BRACKET SCORE\n");
+        masterScoreFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
+
+        masterScoreFile.write("SCORE PARAMETERS\n");
+        masterScoreFile.write("Duration: % minutes, % parts\n".format(~totalDuration, ~numParts));
+        masterScoreFile.write("Density: %, X Probability: %, Bunchiness: %, Staggering: %\n".format(
+            ~density, ~xProbability, ~bunchiness, ~staggering
+        ));
+        masterScoreFile.write("Distribution Balance: %, Full Range Coverage: %\n\n".format(
+            ~distributionBalance, ~fullRangeSpread
+        ));
+
+        masterScoreFile.write("PERFORMANCE INSTRUCTIONS\n");
+        masterScoreFile.write("Perform long tones on your instrument, following the time brackets.\n");
+        masterScoreFile.write("Start a tone at the first time and sustain until the second time.\n");
+        masterScoreFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
+        masterScoreFile.write("Use a stopwatch to keep track of time.\n\n");
+
+        // Write all parts to the master file
+        ~parts.do {|part, i|
+            masterScoreFile.write("\nPART %\n\n".format(i+1));
+
+            part.do {|entry|
+                var start = ~formatTime.(entry[0]);
+                var end = ~formatTime.(entry[1]);
+
+                masterScoreFile.write("> % --- %\n\n".format(start, end));
+            };
+        };
+
+        masterScoreFile.write("\nEND OF SCORE\n");
+        masterScoreFile.close;
+
+        "Master score saved to: %".format(masterPath).postln;
+
+        // Save individual part files
+        ~parts.do {|part, i|
+            var partFilename = "score_part_" ++ (i+1) ++ "_" ++ ~timestamp ++ ".txt";
+            var partPath = ~saveDir +/+ partFilename;
+
+            partFile = File(partPath, "w");
+
+            partFile.write("TIME BRACKET SCORE - PART %\n".format(i+1));
+            partFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
+
+            partFile.write("PERFORMANCE INSTRUCTIONS\n");
+            partFile.write("Perform long tones on your instrument, following the time brackets.\n");
+            partFile.write("Start a tone at the first time and sustain until the second time.\n");
+            partFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
+            partFile.write("Use a stopwatch to keep track of time.\n\n");
+
+            partFile.write("Total Duration: % minutes\n\n".format(~totalDuration));
+
+            partFile.write("PART % TIME BRACKETS\n\n".format(i+1));
+
+            part.do {|entry|
+                var start = ~formatTime.(entry[0]);
+                var end = ~formatTime.(entry[1]);
+
+                partFile.write("> % --- %\n\n".format(start, end));
+            };
+
+            partFile.write("\nEND OF SCORE\n");
+            partFile.close;
+
+            "Part % saved to: %".format(i+1, partPath).postln;
+        };
+
+        "All files saved successfully to directory: %".format(~saveDir).postln;
+    } {
+        |error|
+        "Error saving files: %".format(error.errorString).postln;
+        "You may not have write permissions for this directory.".postln;
+    };
+};
+
+// Function to show where the files are saved in the finder/explorer
+~openSaveDirectory = {
+    var cmd;
+    if(thisProcess.platform.name == \osx) {
+        cmd = "open" + ~saveDir.quote;
+    } {
+        if(thisProcess.platform.name == \windows) {
+            cmd = "explorer" + ~saveDir.quote;
+        } {
+            cmd = "xdg-open" + ~saveDir.quote;
+        };
+    };
+    cmd.unixCmd;
+    "Opening file location: %".format(~saveDir).postln;
+};
+
+// Add a Save Files button
+~saveButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 4, ~buttonY, ~buttonWidth, ~buttonHeight))
+    .states_([["Save Files", Color.black, Color.new255(255, 200, 255)]])
+    .action_({
+        ~savePartsToFiles.value;
+    });
+
+// Add a Show Files button
+~showFilesButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 5, ~buttonY, ~buttonWidth, ~buttonHeight))
+    .states_([["Show Files", Color.black, Color.new255(200, 255, 255)]])
+    .action_({
+        ~openSaveDirectory.value;
+    });
+
+// Move the slider to accommodate the new buttons
+~scrubSlider = Slider(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 6 + 10, ~buttonY, ~timelineWidth - ~margin - (~buttonWidth + ~buttonSpacing) * 6 - 50, ~buttonHeight))
+    .action_({|slider|
+        ~currentTime = slider.value * (~totalDuration * 60);
+        ~userView.refresh;
+    });
+
+
+// Add this code to the existing time bracket generator,
+// just before the "Show the window" line (~window.front;)
+
+// Create a save directory relative to the current file location
+~saveDir = if(thisProcess.nowExecutingPath.notNil) {
+    // If we're executing from a file, create folder next to it
+    PathName(thisProcess.nowExecutingPath).pathOnly +/+ "time_bracket_scores";
+} {
+    // Fallback if we're executing from IDE
+    thisProcess.platform.userAppSupportDir +/+ "time_bracket_scores";
+};
+
+if(File.exists(~saveDir).not) {
+    try {
+        File.mkdir(~saveDir);
+        "Created directory: %".format(~saveDir).postln;
+    } {
+        |error|
+        "Failed to create directory. Will use default directory instead.".postln;
+        "Error was: %".format(error.errorString).postln;
+        // Fall back to user documents directory
+        ~saveDir = Platform.userHomeDir +/+ "Documents" +/+ "time_bracket_scores";
+        if(File.exists(~saveDir).not) {
+            File.mkdir(~saveDir);
+        };
+        "Using directory: %".format(~saveDir).postln;
+    };
+};
+
+// Generate a timestamp for filenames
+~timestamp = Date.getDate.stamp;
+
+// Function to save all parts to separate files
+~savePartsToFiles = {
+    var masterScoreFile, partFile;
+    var masterFilename = "score_all_parts_" ++ ~timestamp ++ ".txt";
+    var masterPath = ~saveDir +/+ masterFilename;
+
+    // Try/catch block to handle potential file access errors
+    try {
+        // Save master score with all parts
+        masterScoreFile = File(masterPath, "w");
+
+        masterScoreFile.write("TIME BRACKET SCORE\n");
+        masterScoreFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
+
+        masterScoreFile.write("SCORE PARAMETERS\n");
+        masterScoreFile.write("Duration: % minutes, % parts\n".format(~totalDuration, ~numParts));
+        masterScoreFile.write("Density: %, X Probability: %, Bunchiness: %, Staggering: %\n".format(
+            ~density, ~xProbability, ~bunchiness, ~staggering
+        ));
+        masterScoreFile.write("Distribution Balance: %, Full Range Coverage: %\n\n".format(
+            ~distributionBalance, ~fullRangeSpread
+        ));
+
+        masterScoreFile.write("PERFORMANCE INSTRUCTIONS\n");
+        masterScoreFile.write("Perform long tones on your instrument, following the time brackets.\n");
+        masterScoreFile.write("Start a tone at the first time and sustain until the second time.\n");
+        masterScoreFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
+        masterScoreFile.write("Use a stopwatch to keep track of time.\n\n");
+
+        // Write all parts to the master file
+        ~parts.do {|part, i|
+            masterScoreFile.write("\nPART %\n\n".format(i+1));
+
+            part.do {|entry|
+                var start = ~formatTime.(entry[0]);
+                var end = ~formatTime.(entry[1]);
+
+                masterScoreFile.write("> % --- %\n\n".format(start, end));
+            };
+        };
+
+        masterScoreFile.write("\nEND OF SCORE\n");
+        masterScoreFile.close;
+
+        "Master score saved to: %".format(masterPath).postln;
+
+        // Save individual part files
+        ~parts.do {|part, i|
+            var partFilename = "score_part_" ++ (i+1) ++ "_" ++ ~timestamp ++ ".txt";
+            var partPath = ~saveDir +/+ partFilename;
+
+            partFile = File(partPath, "w");
+
+            partFile.write("TIME BRACKET SCORE - PART %\n".format(i+1));
+            partFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
+
+            partFile.write("PERFORMANCE INSTRUCTIONS\n");
+            partFile.write("Perform long tones on your instrument, following the time brackets.\n");
+            partFile.write("Start a tone at the first time and sustain until the second time.\n");
+            partFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
+            partFile.write("Use a stopwatch to keep track of time.\n\n");
+
+            partFile.write("Total Duration: % minutes\n\n".format(~totalDuration));
+
+            partFile.write("PART % TIME BRACKETS\n\n".format(i+1));
+
+            part.do {|entry|
+                var start = ~formatTime.(entry[0]);
+                var end = ~formatTime.(entry[1]);
+
+                partFile.write("> % --- %\n\n".format(start, end));
+            };
+
+            partFile.write("\nEND OF SCORE\n");
+            partFile.close;
+
+            "Part % saved to: %".format(i+1, partPath).postln;
+        };
+
+        "All files saved successfully to directory: %".format(~saveDir).postln;
+    } {
+        |error|
+        "Error saving files: %".format(error.errorString).postln;
+        "You may not have write permissions for this directory.".postln;
+    };
+};
+
+// Function to show where the files are saved in the finder/explorer
+~openSaveDirectory = {
+    var cmd;
+    if(thisProcess.platform.name == \osx) {
+        cmd = "open" + ~saveDir.quote;
+    } {
+        if(thisProcess.platform.name == \windows) {
+            cmd = "explorer" + ~saveDir.quote;
+        } {
+            cmd = "xdg-open" + ~saveDir.quote;
+        };
+    };
+    cmd.unixCmd;
+    "Opening file location: %".format(~saveDir).postln;
+};
+
+// Add a Save Files button
+~saveButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 4, ~buttonY, ~buttonWidth, ~buttonHeight))
+    .states_([["Save Files", Color.black, Color.new255(255, 200, 255)]])
+    .action_({
+        ~savePartsToFiles.value;
+    });
+
+// Add a Show Files button
+~showFilesButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 5, ~buttonY, ~buttonWidth, ~buttonHeight))
+    .states_([["Show Files", Color.black, Color.new255(200, 255, 255)]])
+    .action_({
+        ~openSaveDirectory.value;
+    });
+
+// Move the slider to accommodate the new buttons
+~scrubSlider = Slider(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 6 + 10, ~buttonY, ~timelineWidth - ~margin - (~buttonWidth + ~buttonSpacing) * 6 - 50, ~buttonHeight))
+    .action_({|slider|
+        ~currentTime = slider.value * (~totalDuration * 60);
+        ~userView.refresh;
+    });
+
+
+
+
 // Show the window
 ~window.front;
 
@@ -508,3 +818,4 @@ Freedom-oriented:
 "Total Distribution: % early, % mid, % late".format(~earlyTotal, ~midTotal, ~lateTotal).postln;
 "=== END OF SUMMARY ===\n".postln;
 )
+
