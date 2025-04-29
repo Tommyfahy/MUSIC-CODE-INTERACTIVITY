@@ -73,7 +73,7 @@ Formants.ar(freq + 300.rand/lofreq, v) * 0.1;
 
 
 (
-a[0..5]=
+a[0..7]=
 { |freq=50, lofreq=15 |
 	var squiggle = LFClipNoise.kr(100.rand/100).range(0,10);
 	var v = Vowel.compose(
