@@ -32,20 +32,21 @@ a[0..7] = {
         ({20.rand}!5).normalizeSum
     );
 
-    Formants.ar(freq, v) * 0.1;
+    Formants.ar(freq, v) * 0.05;
 }
 )
 
 
 
 (
-~scale = Scale.major;
+~scale = Scale.minor;
 // ~scale = Scale.major; // both work
-~octave1 = ~scale.degrees + 36; //
-~octave2 = ~scale.degrees + 72; //
-~tun = ~octave1 ++ ~octave2;
+~octave1 = ~scale.degrees + 24; //
+~octave2 = ~scale.degrees + 60; //
+~octave3 = ~scale.degrees + 84; //
+~tun = ~octave1 ++ ~octave2 ++~octave3;
 
-a[0..2] = {
+a[0..7] = {
     var freq, v;
     freq = (~tun.choose).midicps;
     v = Vowel.compose(
