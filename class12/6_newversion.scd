@@ -1,18 +1,17 @@
-// Time Bracket Generator with Improved Distribution
-
+// Improved Time Bracket Generator with Fixed Distribution
 (
 // ===== CONFIGURATION PARAMETERS =====
 
 // Basic configuration
 ~totalDuration = 25;     // Total duration in minutes
 ~numParts = 7;          // Number of parts
-~entriesPerPart = 50;   // Target entries per part (may generate fewer if time runs out)
+~entriesPerPart = 20;   // Target entries per part (may generate fewer if time runs out)
 
 // Musical parameters (0.0-1.0)
 ~density = 0.2;         // Overall density
-~xProbability = 0.1;    // X ending probability
-~bunchiness = 0.1;      // How bunched entries are
-~staggering = 0.9;      // Part offset
+~xProbability = 0.4;    // X ending probability
+~bunchiness = 0.3;      // How bunched entries are
+~staggering = 0.1;      // Part offset
 
 /* Presets:
 Sparse, contemplative:
@@ -26,14 +25,14 @@ Freedom-oriented:
 */
 
 // Distribution settings
-~distributionBalance = 0.2;  // 0.0 = front-loaded, 1.0 = back-loaded, 0.5 = balanced
+~distributionBalance = 0.5;  // 0.0 = front-loaded, 1.0 = back-loaded, 0.5 = balanced
 ~fullRangeSpread = true;     // Ensures some entries in each third of the time span
 
 // ===== DURATION CALCULATION =====
 
 // Gap settings - adjust these to control maximum density
 ~gapOffsetMin = 2;      // Minimum gap between entries (seconds)
-~gapOffsetMax = 30;     // Maximum gap between entries (seconds) - increased for better spread
+~gapOffsetMax = 45;     // Maximum gap between entries (seconds) - increased for better spread
 
 // Calculate timing values based on density
 ~minDuration = 3 * (1 - (~density * 0.3));
@@ -55,25 +54,128 @@ Freedom-oriented:
     });
 };
 
-// Adaptive gap calculation - increases likelihood of larger gaps as time progresses
+// Calculate time segments for better distribution tracking
+~segmentCount = 5; // Divide the total duration into this many segments
+~segmentSize = ~totalDuration * 60 / ~segmentCount;
+
+// Improved adaptive gap calculation with better distribution control
 ~calculateGap = {|currentTime, normalGap|
     var progress = currentTime / (~totalDuration * 60);
     var scaleFactor;
+    var currentSegment = (currentTime / ~segmentSize).floor.asInteger;
+    var randomJump = 0.2.coin; // Fixed: Using coin properly as a test, not a value
 
-    // Scale factor increases as we progress through the piece
+    currentSegment = currentSegment.min(~segmentCount - 1).max(0);
+
+    // More pronounced scaling based on distribution preference
     if (~distributionBalance > 0.5) {
-        // Favor entries in latter parts (gaps smaller as we progress)
-        scaleFactor = 1 - (progress * (~distributionBalance - 0.5) * 1.5);
+        // Back-loaded: gaps decrease as we progress (more entries later)
+        scaleFactor = max(0.5, 1.0 - (progress * (~distributionBalance - 0.5) * 2.5));
     } {
-        // Favor entries in early parts (gaps larger as we progress)
-        scaleFactor = 1 + (progress * (0.5 - ~distributionBalance) * 1.5);
+        if (~distributionBalance < 0.5) {
+            // Front-loaded: gaps increase as we progress (more entries early)
+            scaleFactor = min(2.5, 1.0 + (progress * (0.5 - ~distributionBalance) * 2.5));
+        } {
+            // Balanced: use randomized scaling to avoid patterns
+            scaleFactor = rrand(0.8, 1.2);
+        };
     };
 
-    // Occasionally add extra large gaps to ensure better spread
-    if (0.15.coin) {
+    // Introduce randomized jumps for better segment coverage
+    // Fixed: Properly handle the Boolean condition
+    if (randomJump && (normalGap < (~maxGap * 0.7))) {
         normalGap * scaleFactor * rrand(1.5, 3.0);
     } {
         normalGap * scaleFactor;
+    };
+};
+
+// Improved function to jump to underfilled areas
+~jumpToSegment = {|targetSegment, currentSegment, jumpHistory|
+    var targetTime, jumpStrength;
+
+    jumpStrength = rrand(0.3, 0.9); // How far into the segment to jump
+
+    // If jumping to a similar segment, be more random
+    if (abs(targetSegment - currentSegment) <= 1) {
+        jumpStrength = rrand(0.1, 0.9);
+    };
+
+    // Avoid jumping to the same exact spots by using jumpHistory
+    if (jumpHistory.notNil && jumpHistory.includes(targetSegment)) {
+        jumpStrength = 1.0 - jumpStrength; // Try the opposite side of the segment
+    };
+
+    targetTime = (targetSegment * ~segmentSize) + (jumpStrength * ~segmentSize);
+    targetTime = min(targetTime, ~totalDuration * 60 - 60); // Ensure we don't jump too near the end
+
+    "Making a jump from segment % to segment % (time: %)".format(
+        currentSegment + 1,
+        targetSegment + 1,
+        ~formatTime.(targetTime)
+    ).postln;
+
+    targetTime;
+};
+
+// Function to identify the most empty segment
+~findEmptySections = {|segmentCounts, currentSegment|
+    var candidates, idealWeights, weightedSegments;
+    var skipFirst, skipLast;
+
+    candidates = Array.new;
+    weightedSegments = Array.new;
+
+    // Skip very first and very last segment for jumps
+    skipFirst = 0;
+    skipLast = ~segmentCount - 1;
+
+    // Create ideal distribution based on distributionBalance
+    idealWeights = Array.fill(~segmentCount, {|i|
+        var relativePos = i / (~segmentCount - 1);
+        var weight;
+
+        if (~distributionBalance == 0.5) {
+            weight = 1.0; // Equal weight for balanced distribution
+        } {
+            if (~distributionBalance > 0.5) {
+                // Back-loaded: more weight on later segments
+                weight = 0.5 + (relativePos * (~distributionBalance - 0.5) * 2.0);
+            } {
+                // Front-loaded: more weight on earlier segments
+                weight = 1.5 - (relativePos * (0.5 - ~distributionBalance) * 2.0);
+            };
+        };
+
+        weight;
+    });
+
+    // Find underrepresented segments, weighted by ideal distribution
+    ~segmentCount.do {|segIdx|
+        if ((segIdx != skipFirst) && (segIdx != skipLast)) {
+            var currentCount, expectedCount, deficit;
+
+            currentCount = segmentCounts[segIdx];
+            expectedCount = ~entriesPerPart / ~segmentCount * idealWeights[segIdx];
+            deficit = expectedCount - currentCount;
+
+            // The more underrepresented, the higher chance to be selected
+            if (deficit > 0) {
+                // Add multiple times based on deficit to increase chances
+                // of selecting more empty segments
+                deficit.ceil.asInteger.do {
+                    weightedSegments = weightedSegments.add(segIdx);
+                };
+            };
+        };
+    };
+
+    // If we have candidates, choose one with preference for empty ones
+    if (weightedSegments.size > 0) {
+        weightedSegments.choose;
+    } {
+        // If no underfilled segments, just pick a random one
+        rrand(1, ~segmentCount - 2);
     };
 };
 
@@ -82,11 +184,37 @@ Freedom-oriented:
 // Create empty parts array
 ~parts = Array.new;
 
-// Generate parts
+// Generate parts with improved distribution
 ~numParts.do {|i|
     ~entries = Array.new;
-    ~currentTime = ~staggering * rrand(1, 20) * (i+1);
-    ~currentTime = ~currentTime.min(60);
+    ~jumpHistory = List.new;
+
+    // Calculate starting time with better distribution of initial times
+    // Use nonlinear distribution of start times for different parts
+    if(~numParts > 1) {
+        var normalizedIndex = i / (~numParts - 1);
+        var offset;
+
+        if (~distributionBalance == 0.5) {
+            // For balanced distribution, spread parts evenly
+            offset = normalizedIndex * ~totalDuration * 60 * 0.1;
+        } {
+            if (~distributionBalance > 0.5) {
+                // Back-loaded: more parts start later
+                offset = (normalizedIndex * normalizedIndex) * ~totalDuration * 60 * 0.15;
+            } {
+                // Front-loaded: more parts start earlier
+                offset = (normalizedIndex.sqrt) * ~totalDuration * 60 * 0.15;
+            };
+        };
+
+        // Apply staggering factor
+        ~currentTime = offset * ~staggering;
+    } {
+        ~currentTime = 0;
+    };
+
+    ~currentTime = min(~currentTime, ~totalDuration * 60 * 0.1); // Cap initial offset
 
     "Generating Part %".format(i+1).postln;
 
@@ -95,24 +223,49 @@ Freedom-oriented:
     ~xStreak = 0;
 
     // Track coverage of the total duration
+    ~segmentCounts = Array.fill(~segmentCount, { 0 });
+
+    // For backwards compatibility/display
     ~earlyCount = 0; // First third
     ~midCount = 0;   // Middle third
     ~lateCount = 0;  // Last third
 
-    // Ensure at least some entries in each third of the piece
-    ~ensureFullRangeCoverage = ~fullRangeSpread;
+    // Allow multiple jumps for better distribution
+    ~jumpAllowed = true;
+    ~jumpCount = 0;
+    ~maxJumps = 3; // Allow up to 3 jumps per part
+
+    // Last segment we jumped to (to avoid repetitive jumps)
+    ~lastJumpTarget = nil;
 
     // Keep generating until we reach either the entry limit or time limit
     while {(~entryCount < ~entriesPerPart) && (~currentTime < (~totalDuration * 60))} {
         // Entry start time
         ~startTime = ~currentTime;
 
-        // Determine if X ending
+        // Track which segment this belongs to
+        ~currentSegment = (~startTime / ~segmentSize).floor.asInteger;
+        ~currentSegment = ~currentSegment.min(~segmentCount - 1).max(0);
+        ~segmentCounts[~currentSegment] = ~segmentCounts[~currentSegment] + 1;
+
+        // Also track thirds for display
+        if (~startTime < (~totalDuration * 60 / 3)) {
+            ~earlyCount = ~earlyCount + 1;
+        } {
+            if (~startTime < (~totalDuration * 60 * 2/3)) {
+                ~midCount = ~midCount + 1;
+            } {
+                ~lateCount = ~lateCount + 1;
+            };
+        };
+
+        // Determine if X ending with streak dependency
         ~localXProb = ~xProbability;
         if((~xStreak > 0) && (~bunchiness > 0.3)) {
             ~localXProb = ~xProbability * (1 + ~bunchiness);
         };
 
+        // Fixed: Properly handle the coin method
         if(~localXProb.coin) {
             ~endTime = "X";
             ~duration = rrand(3, 8);
@@ -126,25 +279,16 @@ Freedom-oriented:
         // Add this entry
         ~entries = ~entries.add([~startTime, ~endTime]);
 
-        // Update counts for distribution tracking
-        if (~startTime < (~totalDuration * 60 / 3)) {
-            ~earlyCount = ~earlyCount + 1;
-        } {
-            if (~startTime < (~totalDuration * 60 * 2/3)) {
-                ~midCount = ~midCount + 1;
-            } {
-                ~lateCount = ~lateCount + 1;
-            };
-        };
-
         // Debug output to track progress
-        "  Entry %: % --- %".format(
+        "  Entry %: % --- % (segment %)".format(
             ~entryCount + 1,
             ~formatTime.(~startTime),
-            ~formatTime.(~endTime)
+            ~formatTime.(~endTime),
+            ~currentSegment + 1
         ).postln;
 
         // Calculate normal gap based on bunchiness
+        // Fixed: Properly handle the coin method
         if(~bunchiness.coin) {
             ~normalGap = rrand(~minGap, ~minGap * 2);
         } {
@@ -154,14 +298,42 @@ Freedom-oriented:
         // Apply adaptive gap calculation
         ~gap = ~calculateGap.(~startTime, ~normalGap);
 
-        // If we need better coverage of later parts and we're in early sections
-        if(~ensureFullRangeCoverage && (~entryCount > 5) && (~lateCount < 2) && (~startTime < (~totalDuration * 60 * 0.5))) {
-            // Make a big jump to ensure late coverage
-            if(0.4.coin) {
-                ~jumpTarget = rrand(~totalDuration * 60 * 0.6, ~totalDuration * 60 * 0.9);
-                "  Making a jump to % to ensure later coverage".format(~formatTime.(~jumpTarget)).postln;
-                ~currentTime = ~jumpTarget;
-                ~ensureFullRangeCoverage = false; // Only do this once
+        // Check for distribution periodically with increasing frequency as we progress
+        if(~jumpAllowed && ~fullRangeSpread &&
+           ((~entryCount > 3) && ((~entryCount % 4) == 0) ||
+            (~entryCount > 10) && ((~entryCount % 3) == 0))) {
+
+            var totalEntries, expectedPerSegment, maxCount, minCount, targetSegment;
+            var willJump;
+
+            "  Current segment distribution: %".format(~segmentCounts).postln;
+
+            // Calculate distribution metrics
+            totalEntries = ~segmentCounts.sum;
+            expectedPerSegment = totalEntries / ~segmentCount;
+            maxCount = ~segmentCounts.maxItem;
+            minCount = ~segmentCounts.minItem;
+
+            // Check if distribution is imbalanced
+            willJump = (maxCount - minCount) > (expectedPerSegment * 0.5);
+
+            if (willJump) {
+                targetSegment = ~findEmptySections.(~segmentCounts, ~currentSegment);
+
+                // Avoid jumping to the same place repeatedly
+                // Fixed: Properly handle the coin method
+                if ((~lastJumpTarget != targetSegment) || (0.7.coin)) {
+                    ~currentTime = ~jumpToSegment.(targetSegment, ~currentSegment, ~jumpHistory);
+                    ~jumpHistory.add(targetSegment);
+                    ~lastJumpTarget = targetSegment;
+                    ~jumpCount = ~jumpCount + 1;
+
+                    // Disable jumps if we've done enough
+                    if (~jumpCount >= ~maxJumps) {
+                        ~jumpAllowed = false;
+                        "  Maximum jump count reached for this part.".postln;
+                    };
+                };
             };
         } {
             // Normal time advancement
@@ -169,13 +341,19 @@ Freedom-oriented:
         };
 
         // Debug output
-        "  Next entry will start at: %".format(~formatTime.(~currentTime)).postln;
+        "  Next entry will start at: % (segment %)".format(
+            ~formatTime.(~currentTime),
+            (~currentTime / ~segmentSize).floor.asInteger + 1
+        ).postln;
 
         ~entryCount = ~entryCount + 1;
     };
 
     // Add this part to all parts
     ~parts = ~parts.add(~entries);
+
+    // Display distribution information
+    "  Segment distribution: %".format(~segmentCounts).postln;
 
     // Display last entry information - handle "X" case properly
     if (~entries.size > 0) { // Make sure we have at least one entry
@@ -285,6 +463,19 @@ Freedom-oriented:
     Pen.fillRect(Rect(~timeToX.(~totalDuration * 60 * 1/3), ~margin - 15,
                      ~timeToX.(~totalDuration * 60 * 2/3) - ~timeToX.(~totalDuration * 60 * 1/3),
                      ~timelineHeight - ~margin - 5));
+
+    // Draw segment markers
+    ~segmentCount.do {|i|
+        ~segmentX = ~timeToX.(i * ~segmentSize);
+
+        Pen.strokeColor = Color.gray(0.5);
+        Pen.width = 0.5;
+        Pen.line(Point(~segmentX, ~margin - 10), Point(~segmentX, ~timelineHeight - 20));
+        Pen.stroke;
+
+        Pen.fillColor = Color.black;
+        Pen.stringAtPoint("S" ++ (i+1), Point(~segmentX + 2, ~margin - 12), font: Font("Helvetica", 9));
+    };
 
     // Draw minute markers - using global temp variables
     ~i = 0;
@@ -408,7 +599,7 @@ Freedom-oriented:
 };
 
 // Create timer for advancing the timeline marker
-~timerClock = TempoClock(1); // 1 beat per second
+~timerClock = SystemClock.sched(1.0); // 1 beat per second
 ~timerTask = Task({
     loop {
         // Update time
@@ -464,170 +655,6 @@ Freedom-oriented:
         "Regenerating time brackets...".postln;
         this.interpret(thisProcess.interpreter.cmdLine);
     });
-
-// Update control
-~scrubSlider = Slider(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 4 + 10, ~buttonY, ~timelineWidth - ~margin - (~buttonWidth + ~buttonSpacing) * 4 - 50, ~buttonHeight))
-    .action_({|slider|
-        ~currentTime = slider.value * (~totalDuration * 60);
-        ~userView.refresh;
-    });
-
-
-// Add this code to the existing time bracket generator,
-// just before the "Show the window" line (~window.front;)
-
-// Create a save directory in the user's SuperCollider documents directory
-~saveDir = Platform.userAppSupportDir +/+ "time_bracket_scores";
-if(File.exists(~saveDir).not) {
-    try {
-        File.mkdir(~saveDir);
-        "Created directory: %".format(~saveDir).postln;
-    } {
-        |error|
-        "Failed to create directory. Will use temporary directory instead.".postln;
-        "Error was: %".format(error.errorString).postln;
-        // Fall back to system temp directory
-        ~saveDir = PathName.tmp +/+ "time_bracket_scores";
-        if(File.exists(~saveDir).not) {
-            File.mkdir(~saveDir);
-        };
-        "Using temporary directory: %".format(~saveDir).postln;
-    };
-};
-
-// Generate a timestamp for filenames
-~timestamp = Date.getDate.stamp;
-
-// Function to save all parts to separate files
-~savePartsToFiles = {
-    var masterScoreFile, partFile;
-    var masterFilename = "score_all_parts_" ++ ~timestamp ++ ".txt";
-    var masterPath = ~saveDir +/+ masterFilename;
-
-    // Try/catch block to handle potential file access errors
-    try {
-        // Save master score with all parts
-        masterScoreFile = File(masterPath, "w");
-
-        masterScoreFile.write("TIME BRACKET SCORE\n");
-        masterScoreFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
-
-        masterScoreFile.write("SCORE PARAMETERS\n");
-        masterScoreFile.write("Duration: % minutes, % parts\n".format(~totalDuration, ~numParts));
-        masterScoreFile.write("Density: %, X Probability: %, Bunchiness: %, Staggering: %\n".format(
-            ~density, ~xProbability, ~bunchiness, ~staggering
-        ));
-        masterScoreFile.write("Distribution Balance: %, Full Range Coverage: %\n\n".format(
-            ~distributionBalance, ~fullRangeSpread
-        ));
-
-        masterScoreFile.write("PERFORMANCE INSTRUCTIONS\n");
-        masterScoreFile.write("Perform long tones on your instrument, following the time brackets.\n");
-        masterScoreFile.write("Start a tone at the first time and sustain until the second time.\n");
-        masterScoreFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
-        masterScoreFile.write("Use a stopwatch to keep track of time.\n\n");
-
-        // Write all parts to the master file
-        ~parts.do {|part, i|
-            masterScoreFile.write("\nPART %\n\n".format(i+1));
-
-            part.do {|entry|
-                var start = ~formatTime.(entry[0]);
-                var end = ~formatTime.(entry[1]);
-
-                masterScoreFile.write("> % --- %\n\n".format(start, end));
-            };
-        };
-
-        masterScoreFile.write("\nEND OF SCORE\n");
-        masterScoreFile.close;
-
-        "Master score saved to: %".format(masterPath).postln;
-
-        // Save individual part files
-        ~parts.do {|part, i|
-            var partFilename = "score_part_" ++ (i+1) ++ "_" ++ ~timestamp ++ ".txt";
-            var partPath = ~saveDir +/+ partFilename;
-
-            partFile = File(partPath, "w");
-
-            partFile.write("TIME BRACKET SCORE - PART %\n".format(i+1));
-            partFile.write("Generated: " ++ Date.getDate.asString ++ "\n\n");
-
-            partFile.write("PERFORMANCE INSTRUCTIONS\n");
-            partFile.write("Perform long tones on your instrument, following the time brackets.\n");
-            partFile.write("Start a tone at the first time and sustain until the second time.\n");
-            partFile.write("When 'X' is given as an end time, determine the ending yourself.\n");
-            partFile.write("Use a stopwatch to keep track of time.\n\n");
-
-            partFile.write("Total Duration: % minutes\n\n".format(~totalDuration));
-
-            partFile.write("PART % TIME BRACKETS\n\n".format(i+1));
-
-            part.do {|entry|
-                var start = ~formatTime.(entry[0]);
-                var end = ~formatTime.(entry[1]);
-
-                partFile.write("> % --- %\n\n".format(start, end));
-            };
-
-            partFile.write("\nEND OF SCORE\n");
-            partFile.close;
-
-            "Part % saved to: %".format(i+1, partPath).postln;
-        };
-
-        "All files saved successfully to directory: %".format(~saveDir).postln;
-    } {
-        |error|
-        "Error saving files: %".format(error.errorString).postln;
-        "You may not have write permissions for this directory.".postln;
-    };
-};
-
-// Function to show where the files are saved in the finder/explorer
-~openSaveDirectory = {
-    var cmd;
-    if(thisProcess.platform.name == \osx) {
-        cmd = "open" + ~saveDir.quote;
-    } {
-        if(thisProcess.platform.name == \windows) {
-            cmd = "explorer" + ~saveDir.quote;
-        } {
-            cmd = "xdg-open" + ~saveDir.quote;
-        };
-    };
-    cmd.unixCmd;
-    "Opening file location: %".format(~saveDir).postln;
-};
-
-// Add a Save Files button
-~saveButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 4, ~buttonY, ~buttonWidth, ~buttonHeight))
-    .states_([["Save Files", Color.black, Color.new255(255, 200, 255)]])
-    .action_({
-        ~savePartsToFiles.value;
-    });
-
-// Add a Show Files button
-~showFilesButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 5, ~buttonY, ~buttonWidth, ~buttonHeight))
-    .states_([["Show Files", Color.black, Color.new255(200, 255, 255)]])
-    .action_({
-        ~openSaveDirectory.value;
-    });
-
-// Move the slider to accommodate the new buttons
-~scrubSlider = Slider(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 6 + 10, ~buttonY, ~timelineWidth - ~margin - (~buttonWidth + ~buttonSpacing) * 6 - 50, ~buttonHeight))
-    .action_({|slider|
-        ~currentTime = slider.value * (~totalDuration * 60);
-        ~userView.refresh;
-    });
-
-
-
-
-
-// Add this code to the existing time bracket generator,
-// just before the "Show the window" line (~window.front;)
 
 // Create a save directory relative to the current file location
 ~saveDir = if(thisProcess.nowExecutingPath.notNil) {
@@ -760,7 +787,6 @@ if(File.exists(~saveDir).not) {
     cmd.unixCmd;
     "Opening file location: %".format(~saveDir).postln;
 };
-
 // Add a Save Files button
 ~saveButton = Button(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 4, ~buttonY, ~buttonWidth, ~buttonHeight))
     .states_([["Save Files", Color.black, Color.new255(255, 200, 255)]])
@@ -775,12 +801,7 @@ if(File.exists(~saveDir).not) {
         ~openSaveDirectory.value;
     });
 
-// Move the slider to accommodate the new buttons
-~scrubSlider = Slider(~window, Rect(~margin + (~buttonWidth + ~buttonSpacing) * 6 + 10, ~buttonY, ~timelineWidth - ~margin - (~buttonWidth + ~buttonSpacing) * 6 - 50, ~buttonHeight))
-    .action_({|slider|
-        ~currentTime = slider.value * (~totalDuration * 60);
-        ~userView.refresh;
-    });
+
 
 // Show the window
 ~window.front;
@@ -799,15 +820,24 @@ if(File.exists(~saveDir).not) {
 "Total duration: % minutes".format(~totalDuration).postln;
 ~earlyTotal = 0; ~midTotal = 0; ~lateTotal = 0;
 ~parts.do {|part, i|
-    ~earlyCount = 0; ~midCount = 0; ~lateTotal = 0;
+    ~earlyCount = 0; ~midCount = 0; ~lateCount = 0;
     part.do {|entry|
-        if(entry[0] < (~totalDuration * 60 / 3)) { ~earlyCount = ~earlyCount + 1; ~earlyTotal = ~earlyTotal + 1; }
-        { if(entry[0] < (~totalDuration * 60 * 2/3)) { ~midCount = ~midCount + 1; ~midTotal = ~midTotal + 1; }
-        { ~lateTotal = ~lateTotal + 1; }};
+        if(entry[0] < (~totalDuration * 60 / 3)) {
+            ~earlyCount = ~earlyCount + 1;
+            ~earlyTotal = ~earlyTotal + 1;
+        } {
+            if(entry[0] < (~totalDuration * 60 * 2/3)) {
+                ~midCount = ~midCount + 1;
+                ~midTotal = ~midTotal + 1;
+            } {
+                ~lateCount = ~lateCount + 1;
+                ~lateTotal = ~lateTotal + 1;
+            };
+        };
     };
 
     "Part %: % entries (early: %, mid: %, late: %)".format(
-        i+1, part.size, ~earlyCount, ~midCount, (part.size - ~earlyCount - ~midCount)
+        i+1, part.size, ~earlyCount, ~midCount, ~lateCount
     ).postln;
 
     if(part.size > 0) {
@@ -818,4 +848,3 @@ if(File.exists(~saveDir).not) {
 "Total Distribution: % early, % mid, % late".format(~earlyTotal, ~midTotal, ~lateTotal).postln;
 "=== END OF SUMMARY ===\n".postln;
 )
-
